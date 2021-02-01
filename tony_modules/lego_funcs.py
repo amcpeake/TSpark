@@ -689,26 +689,32 @@ class LegoFuncs(commands.Cog):
 
     @commands.command(description = "<moji> ~ Play a moji",
             usage = "\n\t-l : List mojis\n\t-a <name> <link> : Add a moji\n\t-r <name> : Remove a moji")
-    async def moji(self, ctx, opts='-l', name='', link=''):
+    async def moji(self, ctx, *args):
+        args = list(args)
         mojis = self.storage.read('mojis')
-        if opts == '-l':
+        
+        if '-l' in args:
             await ctx.send('```Available mojis:\n' + '\n'.join(mojis) + '```')
 
-        elif opts == '-a':
-            mojis[name] = link
+        elif '-a' in args:
+            name = args[args.index('-a') + 1]
+            mojis[name] = args[args.index('-a') + 2]
             self.storage.write('mojis', mojis)
             await ctx.send(f"Moji {name} successfully added")
 
-        elif opts == '-r':
+        elif '-r' in args:
+            name = args[args.index('-r') + 1]
             del mojis[name]
             self.storage.write('mojis', mojis)
             await ctx.send(f"Moji {name} successfully removed")
 
-        elif opts in mojis:
-            await ctx.send(mojis[opts])
-
+        elif args: 
+            if args[0] in mojis:
+                await ctx.send(mojis[args[0]])
+            else:
+                await ctx.send(f"Moji '{args[0]}' not found")
         else:
-            await ctx.send(f"Moji '{opts}' not found")
+            await ctx.send('```Available mojis:\n' + '\n'.join(mojis) + '```')
 
     @commands.command(description = "<# days|hours|minutes ...> ~ Set a reminder",
             usage = "\n\t-l : List reminders\n\t-u <@user (self)> : Specify user to be reminded")
