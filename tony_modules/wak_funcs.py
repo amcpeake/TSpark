@@ -23,6 +23,8 @@ class WakStore(JSONStore):
         super().__init__(STORAGE_FILE)
         if self['playables'] is None:  # init playables so I don't have to keep checking if they're None
             self['playables'] = []
+        if self['lambdas'] is None: # init lambdas
+            self['lambdas'] = {}
 
 
 class WakFuncs(commands.Cog):
@@ -192,6 +194,83 @@ class WakFuncs(commands.Cog):
             msg.add_field(name=name, value=value, inline=False)
 
         await ctx.send(embed=msg)
+    
+
+    @commands.command(
+        name="lambda",
+        description="[action] [lambda name] [code] [input] ~ Create and run python scripts",
+        usage = "\n\t<lambda name> <code> : Create a new lambda\n\t<lambda name> [input] : Execute a lambda with input\n\tdelete <lambda name> : Deletes the lambda\n\tsource <lambda name> : Prints a lambda's source code\n\tlist : Lists all existing lambdas\n\tInside a lambda the following variables are available:\n\t\tprint: A function to print to discord\n\t\targs: The input passed to this lambda\n\t\tfiles: A list of files attached to the message that called the lambda\n\t\tmessage: The discord message that called the lambda"
+    )
+    async def user_command(self, ctx, *, text):
+        split = re.split(r'[ \n]+', text, 1) # command and args are seperated by at least one space or newline or both
+        command = split[0]
+        args = '' if len(split) == 1 else split[1]
+        lambdas = self.bot.wstorage['lambdas']
+
+        # check if command is valid (useful for if you accidently do !lambda ```code``` or something)
+        if not command.isidentifier():
+            await ctx.send(f'"{command}" is not a valid lambda name (must be a valid Python identifier)')
+
+        # delete lambda
+        elif command == 'delete':
+            lambda_name = args
+            if lambda_name in lambdas:
+                del lambdas[lambda_name]
+                self.bot.wstorage.write('lambdas', lambdas)
+                await ctx.send(f"deleted {lambda_name}")
+            else:
+                await ctx.send(f"can't delete {lambda_name} (no lambda with that name found)")
+        
+        # get source code for lambda
+        elif command == 'source':
+            lambda_name = args
+            if lambda_name in lambdas:
+                code = lambdas[lambda_name]
+                await ctx.send(f"```py\n{code}```")
+            else:
+                await ctx.send(f"can't get source code for {lambda_name} (no lambda with that name found)")
+        
+        # list all lambdas
+        elif command == 'list':
+            lambda_list = ', '.join(lambdas.keys())
+            await ctx.send(lambda_list if lambda_list else "there are currently no lambdas")
+        
+        # execute a lambda
+        elif command in lambdas:
+
+            send_calls = [] # need to keep track of calls to ctx.send so pipes work (basically piping works by checking what was sent to ctx.send after awaiting user_command. BUT asyncio.ensure_future only *schedules* the corutine, it has no way of waiting for its completion like await does. And scheduled corutines cannot run until we hand program exectution back to asyncio (via returning from an awaited corutine or awaiting a corutine). and so, since the rest of this code (including exec) is synchronous, if we used asyncio.ensure_future there would actually be no way for ctx.send calls to run until we return from user_command. This would result in a race condition in asyncio where either it has to choose between running the rest of the pipe code (that's currently awaiting user_command) or running the scheduled ctx.sends (and the pipe code seems to win the race every time). Luckily there is an easy solution: instead of scheduling the ctx.send calls, keep track of all of them and then await them all before exiting this function)
+            def send(*args, **kwargs):
+                call = ctx.send(*args, **kwargs)
+                send_calls.append(call) # don't actually schedule ctx.send calls yet (wait until we can await them all)
+
+            files = [
+                await attachment.to_file() 
+                for attachment in ctx.message.attachments
+            ]
+            environment = {'print': send, 'args': args, 
+                'files': files, 'message': ctx.message}
+
+            exec(lambdas[command], environment)
+            for coro in send_calls: # run all ctx.send calls and wait for them all to finish before returning (so pipes work)
+                await coro # using a for loop instead of asyncio.wait because asyncio.wait doesn't maintain order of execution
+        
+        # lambda doesn't exist yet
+        else:
+            matched_code = re.match(
+                r"^```(?:py)?(?P<code>.+)```$", 
+                args,
+                re.DOTALL
+            )
+
+            # create a new lambda if user sent code
+            if matched_code is not None:
+                lambdas[command] = matched_code.group('code')
+                self.bot.wstorage.write('lambdas', lambdas)
+                await ctx.send(f"new lambda `{command}` created")
+
+            # don't know what to do, assume user was trying to execute a lambda
+            else:
+                await ctx.send(f"can't run {command} (no lambda with that name found)")
 
 
 
