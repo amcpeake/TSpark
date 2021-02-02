@@ -69,7 +69,9 @@ class Pipe(commands.context.Context): # Wrapper for Context to enable piping
 
     async def send(self, *args, **kwargs): # Overrides ctx.send to instead update the content of the pipe
         if 'embed' in kwargs:
-            if kwargs['embed'].description:
+            if kwargs['embed'].footer and kwargs['embed'].footer.text:
+                self.content = str(kwargs['embed'].footer.text)
+            elif kwargs['embed'].description:
                 self.content = str(kwargs['embed'].description)
             elif kwargs['embed'].title:
                 self.content = str(kwargs['embed'].title)
@@ -107,8 +109,8 @@ class Handler(threading.Thread): # Auxiliary thread to execute secondary command
                 piped_message = msg.content
                 while re.search(r'\$\(![a-z]+[^$()]*\)', piped_message):
                     sub = re.search(r'\$\(![a-z]+[^$()]*\)', piped_message)[0] # Find chunk of message to substitute
-                    cmd = sub.split(' ')[0][3:-1]
-                    msg.content = sub[2:-1] 
+                    msg.content = sub[2:-1]
+                    cmd = msg.content.split(' ')[0][1:]
                     pipe = Pipe(self.execute(bot.get_context(msg)))
                     
                     self.execute(bot.get_command(cmd).invoke(pipe))
